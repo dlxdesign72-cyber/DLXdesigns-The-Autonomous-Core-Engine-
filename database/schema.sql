@@ -1,5 +1,8 @@
 -- DLX Designs Supabase schema
 
+-- Ensure pgcrypto is available for gen_random_uuid()
+CREATE EXTENSION IF NOT EXISTS pgcrypto;
+
 -- Table: dlx_verified_leads
 CREATE TABLE IF NOT EXISTS dlx_verified_leads (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),

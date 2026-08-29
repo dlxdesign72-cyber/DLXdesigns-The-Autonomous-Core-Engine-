@@ -1,4 +1,4 @@
-import { supabaseAdmin } from '../../../backend/supabaseClient.js';
+import { supabaseAdmin } from '../../../../backend/supabaseClient.js';
 
 // This API endpoint is ran server-side to query Supabase using service role key
 export default async function handler(req, res) {
