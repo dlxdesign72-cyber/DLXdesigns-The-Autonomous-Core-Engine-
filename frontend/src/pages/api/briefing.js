@@ -1,16 +1,16 @@
-import { supabaseAdmin } from '../../../../backend/supabaseClient.js';
+import { supabaseAdmin } from '../../../../backend/supabaseAdmin.js';
 
 export default async function handler(req, res) {
   try {
     const { data: latest } = await supabaseAdmin
-      .from('dlx_oracle_logs')
-      .select('market_trend_summary,competitor_analysis,actionable_recommendation,created_at')
+      .from('qualification_decisions')
+      .select('prospect_id,score,tier,approved,reason,created_at')
       .order('created_at', { ascending: false })
       .limit(1);
 
     const { data: sampleLeads } = await supabaseAdmin
-      .from('dlx_verified_leads')
-      .select('full_name,phone_number,email,intent_score,source_platform')
+      .from('prospects')
+      .select('full_name,phone_number,email,product_interest')
       .order('created_at', { ascending: false })
       .limit(6);
 

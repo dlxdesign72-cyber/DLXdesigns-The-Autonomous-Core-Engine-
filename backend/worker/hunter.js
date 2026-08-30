@@ -1,102 +1,64 @@
-import fetch from 'node-fetch';
-import cheerio from 'cheerio';
 import pino from 'pino';
-import { supabaseAdmin } from '../supabaseClient.js';
+import { supabaseAdmin } from '../supabaseAdmin.js';
+import { processLeadPayload } from '../services/processLeadService.js';
 
 const logger = pino({ name: 'hunter' });
 
-// Simple seed list of target URLs to sample intent signals from.
-// In production, expand this to target marketplaces, social platforms (via APIs), and classifieds.
+// Config-driven sources: list sources and their kind. Unsupported sources must be explicitly marked.
 const TARGET_SOURCES = [
-  {
-    name: 'NaijaMarketplaceExample',
-    url: 'https://example-listings.local/fashion/menswear',
-    selector: '.listing',
-  },
+  // Example: unsupported marketplace (marked unsupported so Hunter will skip and log)
+  { name: 'NaijaMarketplaceExample', kind: 'unsupported', note: 'No public API; scraping not permitted' },
+  // To enable a real API source, add an entry like:
+  // { name: 'SomePublicAPI', kind: 'api', url: 'https://api.example.com/listings', mapping: {...} }
 ];
 
-function extractIntentScoreFromText(text) {
-  // Heuristic scorer: look for keywords and numeric indicators.
-  const keywordsHigh = ['buy', 'order', 'urgent', 'ready to buy', 'need now'];
-  const keywordsMedium = ['interested', 'price', 'how much', 'enquiry', 'inquire'];
-  const lower = text.toLowerCase();
-  let score = 1;
-  for (const k of keywordsMedium) if (lower.includes(k)) score = Math.max(score, 5);
-  for (const k of keywordsHigh) if (lower.includes(k)) score = Math.max(score, 8);
-  // bump if phone-like or 'contact' found
-  if (/(\+?\d[\d\s-]{6,})/.test(text)) score = Math.max(score, 7);
-  return Math.min(10, score);
-}
-
-async function fetchPage(url) {
-  const res = await fetch(url, { timeout: 20000 });
-  if (!res.ok) throw new Error(`Failed to fetch ${url}: ${res.status}`);
-  return res.text();
-}
-
-export async function harvestFromSource(source, maxItems = 10) {
-  logger.info({ source }, 'harvestFromSource');
-  const html = await fetchPage(source.url);
-  const $ = cheerio.load(html);
-  const items = [];
-  $(source.selector).slice(0, maxItems).each((i, el) => {
-    const title = $(el).find('.title').text().trim() || $(el).text().trim().slice(0, 120);
-    const phoneMatch = $(el).text().match(/(\+?\d[\d\s-]{6,})/);
-    const phone = phoneMatch ? phoneMatch[0].replace(/\s+/g, '') : null;
-    const emailMatch = $(el).text().match(/[\w.-]+@[\w.-]+\.[A-Za-z]{2,6}/);
-    const email = emailMatch ? emailMatch[0] : null;
-    const intent_score = extractIntentScoreFromText($(el).text());
-    items.push({
-      full_name: $(el).find('.name').text().trim() || null,
-      phone_number: phone,
-      email,
-      source_platform: source.name,
-      intent_score,
-      style_interest: $(el).find('.style').text().trim() || null,
-      raw_intent_signal: { title }
-    });
-  });
-  return items;
-}
-
-export async function upsertLeadToSupabase(lead) {
-  const row = {
-    full_name: lead.full_name,
-    phone_number: lead.phone_number,
-    email: lead.email,
-    source_platform: lead.source_platform,
-    intent_score: lead.intent_score || 1,
-    style_interest: lead.style_interest,
-    raw_intent_signal: lead.raw_intent_signal || {},
-    lead_status: lead.lead_status || 'new'
-  };
-
-  // Upsert using phone_number as unique key
-  const { data, error } = await supabaseAdmin
-    .from('dlx_verified_leads')
-    .upsert(row, { onConflict: ['phone_number'], returning: 'representation' });
-
-  if (error) {
-    logger.error({ err: error }, 'Failed to upsert lead');
-    throw error;
-  }
-  logger.info({ phone: row.phone_number }, 'Upserted lead');
-  return data;
-}
-
-// Worker entry for a single run
 export async function runHunter({ maxPages = 3 } = {}) {
   for (const source of TARGET_SOURCES) {
     try {
-      const items = await harvestFromSource(source, maxPages);
-      for (const item of items) {
-        if (!item.phone_number && !item.email) continue; // ignore uncontactable
-        try {
-          await upsertLeadToSupabase(item);
-        } catch (err) {
-          logger.warn({ err: err.message }, 'upsert failed for item');
-        }
+      if (source.kind === 'unsupported') {
+        logger.info({ source: source.name, note: source.note }, 'Source unsupported — skipping');
+        continue;
       }
+
+      if (source.kind === 'api') {
+        // Example API integration: must be provided/implemented per source
+        const res = await fetch(source.url, { timeout: 20000 });
+        if (!res.ok) throw new Error(`API ${source.name} returned ${res.status}`);
+        const json = await res.json();
+        // Map JSON items to structured evidence — mapping must be implemented per-source
+        const items = (json.items || json.results || []);
+        for (const it of items.slice(0, maxPages)) {
+          // Build structured payload
+          const payload = {
+            source: source.name,
+            source_url: it.url || null,
+            captured_at: it.published_at || new Date().toISOString(),
+            raw_signal: it,
+            evidence_type: 'listing',
+            provenance: 'HUNTER_DISCOVERED',
+            contact: { phone: it.phone || null, email: it.email || null },
+            product_interest: it.interest || null,
+            location: it.location || null
+          };
+          // Only process if contact info exists
+          if (!payload.contact.phone && !payload.contact.email) continue;
+          try {
+            await processLeadPayload(payload, 'hunter');
+          } catch (err) {
+            logger.warn({ err: err.message }, 'Failed to process hunter payload');
+          }
+        }
+        continue;
+      }
+
+      if (source.kind === 'scrape') {
+        // Scraping is allowed only if source provides a public endpoint and scraping is permitted by TOS.
+        // If not, mark as unsupported above. Implement scraping only with explicit confirmation.
+        logger.info({ source: source.name }, 'Scrape kind is configured but not implemented — skipping to avoid accidental scraping');
+        continue;
+      }
+
+      logger.info({ source: source.name }, 'Unknown source kind — skipping');
     } catch (err) {
       logger.error({ err: err.message, source }, 'source harvest failed');
     }
