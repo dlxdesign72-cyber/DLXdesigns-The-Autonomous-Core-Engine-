@@ -1,0 +1,22 @@
+[
+  {
+    "id": "t1",
+    "title": "Men's Senator outfit for sale",
+    "url": "https://example.test/listing/1",
+    "published_at": "2026-09-01T10:00:00Z",
+    "phone": "08123456789",
+    "email": "seller1@example.test",
+    "interest": "Senator",
+    "location": { "city": "Lagos", "area": "Ikeja" }
+  },
+  {
+    "id": "t2",
+    "title": "Agbada wedding special",
+    "url": "https://example.test/listing/2",
+    "published_at": "2026-09-02T12:00:00Z",
+    "phone": "+2348123456789",
+    "email": "seller2@example.test",
+    "interest": "Agbada",
+    "location": { "city": "Lagos", "area": "Victoria Island" }
+  }
+]
