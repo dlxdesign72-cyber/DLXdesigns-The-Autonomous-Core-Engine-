@@ -1,0 +1,7 @@
+[build]
+  command = "cd frontend && npm ci --no-audit --no-fund && npm run build"
+  publish = "frontend/.next"
+  environment = { NODE_VERSION = "18" }
+
+[[plugins]]
+  package = "@netlify/plugin-nextjs"
